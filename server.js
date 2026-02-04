@@ -117,6 +117,55 @@ app.delete('/api/orders/:id', (req, res) => {
     res.json({ message: 'Deleted' });
 });
 
+// =========================================================
+// 🚀 MENU MANAGEMENT ROUTES (Naya Item Add Karne Ke Liye)
+// =========================================================
+
+// Helper function to read/write menu
+function readMenu() {
+    try {
+        if (fs.existsSync(MENU_FILE)) {
+            const data = fs.readFileSync(MENU_FILE, 'utf8');
+            return JSON.parse(data);
+        }
+        return [];
+    } catch (e) { return []; }
+}
+
+function writeMenu(data) {
+    try {
+        fs.writeFileSync(MENU_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) { console.error('Error writing menu file:', e); }
+}
+
+// 1. Saare menu items fetch karne ke liye (index.html isse load hoga)
+app.get('/api/menu', (req, res) => {
+    const menu = readMenu();
+    res.json(menu);
+});
+
+// 2. Naya item add karne ke liye (Owner Dashboard isse use karega)
+app.post('/api/menu', (req, res) => {
+    try {
+        const menu = readMenu();
+        const newItem = req.body;
+
+        // Validation
+        if (!newItem.name || !newItem.price || !newItem.category) {
+            return res.status(400).json({ message: 'Missing item details' });
+        }
+
+        newItem.id = Date.now().toString(); // Unique ID generator
+        menu.push(newItem);
+        
+        writeMenu(menu);
+        console.log(`✅ New item added: ${newItem.name}`);
+        res.status(201).json(newItem);
+    } catch (error) {
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
 // Health Check
 app.get('/api/health', (req, res) => res.json({ status: 'OK' }));
 
