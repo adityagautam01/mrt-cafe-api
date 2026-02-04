@@ -4,14 +4,14 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 3000; // API is port 3000 par chalegi
+const PORT = process.env.PORT || 3000;
 
 // Middleware for parsing JSON data
 app.use(bodyParser.json());
 
-// CORS Middleware to allow frontend to talk to backend
+// CORS Middleware
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*'); // Sabhi domains ko allow karta hai
+    res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') {
@@ -20,57 +20,56 @@ app.use((req, res, next) => {
     next();
 });
 
-// Data file path (Temporary "database")
-const DATA_FILE = path.join(__dirname, 'orders.json');
+// Data file paths
+const ORDERS_FILE = path.join(__dirname, 'orders.json');
+const MENU_FILE = path.join(__dirname, 'menu.json');
 
-// Helper function to read data
+// Helper function to read/write orders (Correct Logic)
 function readOrders() {
     try {
-        const data = fs.readFileSync(DATA_FILE, 'utf8');
-        return JSON.parse(data);
+        if (fs.existsSync(ORDERS_FILE)) {
+            const data = fs.readFileSync(ORDERS_FILE, 'utf8');
+            return JSON.parse(data);
+        } else {
+            return { orders: [], counter: 1 };
+        }
     } catch (e) {
-        // Agar file exist nahi karti ya empty hai
         return { orders: [], counter: 1 };
     }
 }
 
-// Helper function to write data
 function writeOrders(data) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+    try {
+        fs.writeFileSync(ORDERS_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+        console.error('Error writing orders file:', e);
+    }
 }
 
 // =========================================================
-// API ENDPOINTS
+// ✅ CORRECTED API ENDPOINTS
 // =========================================================
 
-// 1. GET /api/orders (Fetch all orders)
+// 1. Fetch all orders
 app.get('/api/orders', (req, res) => {
     const data = readOrders();
-    res.json(data);
+    res.json(data.orders || []);
 });
 
-// 2. POST /api/orders (Place a new order - index.html se call hoga)
+// 2. Place new order
 app.post('/api/orders', (req, res) => {
     const data = readOrders();
     const newOrder = req.body;
-    
-    // Server-side ID aur metadata generate karna
-    newOrder.orderNumber = data.counter++; 
-    newOrder.id = Date.now().toString(); // Temporary unique ID
+    newOrder.orderNumber = data.counter++;
+    newOrder.id = Date.now().toString();
     newOrder.timestamp = Date.now();
-    
+    newOrder.confirmed = false;
     data.orders.push(newOrder);
     writeOrders(data);
-    
-    console.log(`New Order #${newOrder.orderNumber} placed by ${newOrder.customerName}`);
-    res.status(201).json({ 
-        message: 'Order placed successfully', 
-        orderNumber: newOrder.orderNumber,
-        id: newOrder.id 
-    });
+    res.status(201).json({ message: 'Order placed', id: newOrder.id });
 });
 
-// 3. PUT /api/orders/:id/confirm (Confirm an order)
+// 3. ✅ FIX: Confirm Order Route (Jo aap dashboard me use karte hain)
 app.put('/api/orders/:id/confirm', (req, res) => {
     const orderId = req.params.id;
     const data = readOrders();
@@ -78,35 +77,47 @@ app.put('/api/orders/:id/confirm', (req, res) => {
 
     if (orderIndex !== -1) {
         data.orders[orderIndex].confirmed = true;
-        data.orders[orderIndex].confirmedAt = new Date().toLocaleString();
         writeOrders(data);
-        
-        console.log(`Order ID ${orderId} confirmed.`);
-        res.json({ message: 'Order confirmed successfully' });
+        res.json({ message: 'Order confirmed' });
     } else {
         res.status(404).json({ message: 'Order not found' });
     }
 });
 
-// 4. DELETE /api/orders/:id (Delete an order)
-app.delete('/api/orders/:id', (req, res) => {
+// 4. ✅ FIX: Update/Edit Bill Route (Isse 404 error solve hoga)
+app.put('/api/orders/:id', (req, res) => {
     const orderId = req.params.id;
     const data = readOrders();
-    const initialLength = data.orders.length;
-    
-    data.orders = data.orders.filter(o => o.id !== orderId);
-    
-    if (data.orders.length < initialLength) {
+    const orderIndex = data.orders.findIndex(o => o.id === orderId);
+
+    if (orderIndex !== -1) {
+        const updatedData = req.body;
+        
+        // Purana data aur naya data merge karein
+        data.orders[orderIndex] = {
+            ...data.orders[orderIndex], // Purani details rakhein
+            items: updatedData.items,   // Naye items
+            total: updatedData.total,   // Naya total
+            confirmed: updatedData.confirmed // Status
+        };
+
         writeOrders(data);
-        console.log(`Order ID ${orderId} deleted.`);
-        res.json({ message: 'Order deleted successfully' });
+        console.log(`✅ Order ID ${orderId} updated successfully.`);
+        res.json(data.orders[orderIndex]); // Updated order wapas bhejein
     } else {
         res.status(404).json({ message: 'Order not found' });
     }
 });
 
-
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-    console.log('API Endpoints are ready!');
+// 5. Delete order
+app.delete('/api/orders/:id', (req, res) => {
+    const data = readOrders();
+    data.orders = data.orders.filter(o => o.id !== req.params.id);
+    writeOrders(data);
+    res.json({ message: 'Deleted' });
 });
+
+// Health Check
+app.get('/api/health', (req, res) => res.json({ status: 'OK' }));
+
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
