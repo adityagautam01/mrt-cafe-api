@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 // 🌐 MONGODB CONNECTION
 // =========================================================
 // YAHAN APNA PASSWORD BADLEIN: <db_password> ki jagah apna asli password likhein
-const mongoURI = "mongodb+srv://aditya_admin:<db_password>@cluster0.wotddhe.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"; 
+const mongoURI = "mongodb+srv://aditya_admin:Akumar6586@cluster0.wotddhe.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"; 
 
 mongoose.connect(mongoURI)
   .then(() => console.log("✅ MongoDB Connected: Data ab hamesha ke liye Cloud me save rahega"))
