@@ -1,172 +1,156 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
-const fs = require('fs');
-const path = require('path');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware for parsing JSON data
-app.use(bodyParser.json());
+// =========================================================
+// 🌐 MONGODB CONNECTION
+// =========================================================
+// YAHAN APNA PASSWORD BADLEIN: <db_password> ki jagah apna asli password likhein
+const mongoURI = "mongodb+srv://aditya_admin:<db_password>@cluster0.wotddhe.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"; 
 
-// CORS Middleware
+mongoose.connect(mongoURI)
+  .then(() => console.log("✅ MongoDB Connected: Data ab hamesha ke liye Cloud me save rahega"))
+  .catch(err => console.error("❌ Connection Error:", err));
+
+// =========================================================
+// 📋 DATABASE SCHEMAS (Database Structure)
+// =========================================================
+
+// Menu Items ke liye
+const menuSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    price: { type: Number, required: true },
+    category: { type: String, required: true },
+    emoji: String,
+    id: String
+});
+const MenuItem = mongoose.model('MenuItem', menuSchema);
+
+// Orders ke liye
+const orderSchema = new mongoose.Schema({
+    orderNumber: Number,
+    customerName: String,
+    tableNumber: String,
+    contactNumber: String,
+    items: Array,
+    total: Number,
+    type: String,
+    confirmed: { type: Boolean, default: false },
+    date: String,
+    time: String,
+    timestamp: { type: Number, default: Date.now },
+    id: String
+});
+const Order = mongoose.model('Order', orderSchema);
+
+// Order Counter (Order Number badhane ke liye)
+const counterSchema = new mongoose.Schema({ _id: String, seq: { type: Number, default: 0 } });
+const Counter = mongoose.model('Counter', counterSchema);
+
+// Middleware
+app.use(bodyParser.json());
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
 
-// Data file paths
-const ORDERS_FILE = path.join(__dirname, 'orders.json');
-const MENU_FILE = path.join(__dirname, 'menu.json');
-
-// Helper function to read/write orders (Correct Logic)
-function readOrders() {
-    try {
-        if (fs.existsSync(ORDERS_FILE)) {
-            const data = fs.readFileSync(ORDERS_FILE, 'utf8');
-            return JSON.parse(data);
-        } else {
-            return { orders: [], counter: 1 };
-        }
-    } catch (e) {
-        return { orders: [], counter: 1 };
-    }
-}
-
-function writeOrders(data) {
-    try {
-        fs.writeFileSync(ORDERS_FILE, JSON.stringify(data, null, 2), 'utf8');
-    } catch (e) {
-        console.error('Error writing orders file:', e);
-    }
-}
-
 // =========================================================
-// ✅ CORRECTED API ENDPOINTS
+// 🚀 API ENDPOINTS (Menu & Orders)
 // =========================================================
 
-// 1. Fetch all orders
-app.get('/api/orders', (req, res) => {
-    const data = readOrders();
-    res.json(data.orders || []);
-});
+// --- MENU ROUTES ---
 
-// 2. Place new order
-app.post('/api/orders', (req, res) => {
-    const data = readOrders();
-    const newOrder = req.body;
-    newOrder.orderNumber = data.counter++;
-    newOrder.id = Date.now().toString();
-    newOrder.timestamp = Date.now();
-    newOrder.confirmed = false;
-    data.orders.push(newOrder);
-    writeOrders(data);
-    res.status(201).json({ message: 'Order placed', id: newOrder.id });
-});
-
-// 3. ✅ FIX: Confirm Order Route (Jo aap dashboard me use karte hain)
-app.put('/api/orders/:id/confirm', (req, res) => {
-    const orderId = req.params.id;
-    const data = readOrders();
-    const orderIndex = data.orders.findIndex(o => o.id === orderId);
-
-    if (orderIndex !== -1) {
-        data.orders[orderIndex].confirmed = true;
-        writeOrders(data);
-        res.json({ message: 'Order confirmed' });
-    } else {
-        res.status(404).json({ message: 'Order not found' });
-    }
-});
-
-// 4. ✅ FIX: Update/Edit Bill Route (Isse 404 error solve hoga)
-app.put('/api/orders/:id', (req, res) => {
-    const orderId = req.params.id;
-    const data = readOrders();
-    const orderIndex = data.orders.findIndex(o => o.id === orderId);
-
-    if (orderIndex !== -1) {
-        const updatedData = req.body;
-        
-        // Purana data aur naya data merge karein
-        data.orders[orderIndex] = {
-            ...data.orders[orderIndex], // Purani details rakhein
-            items: updatedData.items,   // Naye items
-            total: updatedData.total,   // Naya total
-            confirmed: updatedData.confirmed // Status
-        };
-
-        writeOrders(data);
-        console.log(`✅ Order ID ${orderId} updated successfully.`);
-        res.json(data.orders[orderIndex]); // Updated order wapas bhejein
-    } else {
-        res.status(404).json({ message: 'Order not found' });
-    }
-});
-
-// 5. Delete order
-app.delete('/api/orders/:id', (req, res) => {
-    const data = readOrders();
-    data.orders = data.orders.filter(o => o.id !== req.params.id);
-    writeOrders(data);
-    res.json({ message: 'Deleted' });
-});
-
-// =========================================================
-// 🚀 MENU MANAGEMENT ROUTES (Naya Item Add Karne Ke Liye)
-// =========================================================
-
-// Helper function to read/write menu
-function readMenu() {
+// 1. Saare menu items fetch karna (index.html ke liye)
+app.get('/api/menu', async (req, res) => {
     try {
-        if (fs.existsSync(MENU_FILE)) {
-            const data = fs.readFileSync(MENU_FILE, 'utf8');
-            return JSON.parse(data);
-        }
-        return [];
-    } catch (e) { return []; }
-}
-
-function writeMenu(data) {
-    try {
-        fs.writeFileSync(MENU_FILE, JSON.stringify(data, null, 2), 'utf8');
-    } catch (e) { console.error('Error writing menu file:', e); }
-}
-
-// 1. Saare menu items fetch karne ke liye (index.html isse load hoga)
-app.get('/api/menu', (req, res) => {
-    const menu = readMenu();
-    res.json(menu);
+        const menu = await MenuItem.find();
+        res.json(menu);
+    } catch (err) { res.status(500).json({ message: 'Error fetching menu' }); }
 });
 
-// 2. Naya item add karne ke liye (Owner Dashboard isse use karega)
-app.post('/api/menu', (req, res) => {
+// 2. Naya item add karna (Dashboard ke liye)
+app.post('/api/menu', async (req, res) => {
     try {
-        const menu = readMenu();
-        const newItem = req.body;
-
-        // Validation
-        if (!newItem.name || !newItem.price || !newItem.category) {
-            return res.status(400).json({ message: 'Missing item details' });
-        }
-
-        newItem.id = Date.now().toString(); // Unique ID generator
-        menu.push(newItem);
-        
-        writeMenu(menu);
-        console.log(`✅ New item added: ${newItem.name}`);
+        const newItem = new MenuItem({
+            ...req.body,
+            id: Date.now().toString()
+        });
+        await newItem.save();
+        console.log(`✅ Item saved: ${newItem.name}`);
         res.status(201).json(newItem);
-    } catch (error) {
-        res.status(500).json({ message: 'Internal Server Error' });
-    }
+    } catch (err) { res.status(500).json({ message: 'Error saving item' }); }
+});
+
+// --- ORDER ROUTES ---
+
+// 3. Saare orders fetch karna
+app.get('/api/orders', async (req, res) => {
+    try {
+        const orders = await Order.find().sort({ timestamp: -1 });
+        res.json(orders);
+    } catch (err) { res.status(500).json({ message: 'Error fetching orders' }); }
+});
+
+// 4. Naya order place karna
+app.post('/api/orders', async (req, res) => {
+    try {
+        // Auto-increment order number logic
+        const counter = await Counter.findOneAndUpdate(
+            { _id: 'orderId' },
+            { $inc: { seq: 1 } },
+            { new: true, upsert: true }
+        );
+
+        const newOrder = new Order({
+            ...req.body,
+            orderNumber: counter.seq,
+            id: Date.now().toString(),
+            timestamp: Date.now()
+        });
+
+        await newOrder.save();
+        res.status(201).json({ message: 'Order placed', id: newOrder.id, orderNumber: newOrder.orderNumber });
+    } catch (err) { res.status(500).json({ message: 'Error placing order' }); }
+});
+
+// 5. Order confirm karna
+app.put('/api/orders/:id/confirm', async (req, res) => {
+    try {
+        const updated = await Order.findOneAndUpdate(
+            { id: req.params.id },
+            { confirmed: true },
+            { new: true }
+        );
+        res.json({ message: 'Order confirmed', order: updated });
+    } catch (err) { res.status(500).json({ message: 'Error confirming order' }); }
+});
+
+// 6. Order/Bill edit karna
+app.put('/api/orders/:id', async (req, res) => {
+    try {
+        const updated = await Order.findOneAndUpdate(
+            { id: req.params.id },
+            { items: req.body.items, total: req.body.total, confirmed: req.body.confirmed },
+            { new: true }
+        );
+        res.json(updated);
+    } catch (err) { res.status(500).json({ message: 'Error updating order' }); }
+});
+
+// 7. Order delete karna
+app.delete('/api/orders/:id', async (req, res) => {
+    try {
+        await Order.deleteOne({ id: req.params.id });
+        res.json({ message: 'Deleted successfully' });
+    } catch (err) { res.status(500).json({ message: 'Error deleting order' }); }
 });
 
 // Health Check
-app.get('/api/health', (req, res) => res.json({ status: 'OK' }));
+app.get('/api/health', (req, res) => res.json({ status: 'Connected to MongoDB' }));
 
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
