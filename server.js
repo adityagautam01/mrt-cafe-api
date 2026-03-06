@@ -37,6 +37,8 @@ const orderSchema = new mongoose.Schema({
     items: Array,
     total: Number,
     type: String,
+    paymentMethod: String,
+    paymentStatus: String,
     confirmed: { type: Boolean, default: false },
     date: String,
     time: String,
@@ -135,7 +137,13 @@ app.put('/api/orders/:id', async (req, res) => {
     try {
         const updated = await Order.findOneAndUpdate(
             { id: req.params.id },
-            { items: req.body.items, total: req.body.total, confirmed: req.body.confirmed },
+            {
+                items: req.body.items,
+                total: req.body.total,
+                confirmed: req.body.confirmed,
+                paymentMethod: req.body.paymentMethod,
+                paymentStatus: req.body.paymentStatus
+            },
             { new: true }
         );
         res.json(updated);
