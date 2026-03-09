@@ -51,6 +51,25 @@ const Order = mongoose.model('Order', orderSchema);
 const counterSchema = new mongoose.Schema({ _id: String, seq: { type: Number, default: 0 } });
 const Counter = mongoose.model('Counter', counterSchema);
 
+async function createCafeOrder(orderData) {
+    const counter = await Counter.findOneAndUpdate(
+        { _id: 'orderId' },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true }
+    );
+
+    const newOrder = new Order({
+        ...orderData,
+        orderNumber: counter.seq,
+        id: Date.now().toString(),
+        timestamp: Date.now()
+    });
+
+    await newOrder.save();
+
+    return newOrder;
+}
+
 // Middleware
 app.use(bodyParser.json());
 app.use((req, res, next) => {
@@ -101,21 +120,7 @@ app.get('/api/orders', async (req, res) => {
 // 4. Naya order place karna
 app.post('/api/orders', async (req, res) => {
     try {
-        // Auto-increment order number logic
-        const counter = await Counter.findOneAndUpdate(
-            { _id: 'orderId' },
-            { $inc: { seq: 1 } },
-            { new: true, upsert: true }
-        );
-
-        const newOrder = new Order({
-            ...req.body,
-            orderNumber: counter.seq,
-            id: Date.now().toString(),
-            timestamp: Date.now()
-        });
-
-        await newOrder.save();
+        const newOrder = await createCafeOrder(req.body);
         res.status(201).json({ message: 'Order placed', id: newOrder.id, orderNumber: newOrder.orderNumber });
     } catch (err) { res.status(500).json({ message: 'Error placing order' }); }
 });
