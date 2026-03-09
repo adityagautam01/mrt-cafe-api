@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
+const crypto = require('crypto');
+const Razorpay = require('razorpay');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -9,6 +11,15 @@ const PORT = process.env.PORT || 3000;
 // =========================================================
 // YAHAN APNA PASSWORD BADLEIN: <db_password> ki jagah apna asli password likhein
 const mongoURI = "mongodb+srv://aditya_admin:Akumar6586@cluster0.wotddhe.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"; 
+const razorpayKeyId = process.env.RAZORPAY_KEY_ID || '';
+const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET || '';
+
+const razorpay = razorpayKeyId && razorpayKeySecret
+    ? new Razorpay({
+        key_id: razorpayKeyId,
+        key_secret: razorpayKeySecret
+      })
+    : null;
 
 mongoose.connect(mongoURI)
   .then(() => console.log("✅ MongoDB Connected: Data ab hamesha ke liye Cloud me save rahega"))
@@ -123,6 +134,83 @@ app.post('/api/orders', async (req, res) => {
         const newOrder = await createCafeOrder(req.body);
         res.status(201).json({ message: 'Order placed', id: newOrder.id, orderNumber: newOrder.orderNumber });
     } catch (err) { res.status(500).json({ message: 'Error placing order' }); }
+});
+
+app.post('/api/payments/razorpay/order', async (req, res) => {
+    try {
+        if (!razorpay) {
+            return res.status(500).json({ message: 'Razorpay is not configured on the server.' });
+        }
+
+        const amount = Number(req.body.amount);
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ message: 'Invalid amount for Razorpay order.' });
+        }
+
+        const razorpayOrder = await razorpay.orders.create({
+            amount: Math.round(amount * 100),
+            currency: 'INR',
+            receipt: `mrt_${Date.now()}`,
+            notes: {
+                customerName: String(req.body.customerName || 'MR.T Cafe Customer').slice(0, 255),
+                orderType: String(req.body.type || 'Dine-In').slice(0, 255)
+            }
+        });
+
+        res.json({
+            keyId: razorpayKeyId,
+            order: razorpayOrder
+        });
+    } catch (err) {
+        console.error('Razorpay order creation error:', err);
+        res.status(500).json({ message: 'Unable to create Razorpay order.' });
+    }
+});
+
+app.post('/api/payments/razorpay/verify', async (req, res) => {
+    try {
+        if (!razorpay) {
+            return res.status(500).json({ message: 'Razorpay is not configured on the server.' });
+        }
+
+        const {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+            orderData
+        } = req.body;
+
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !orderData) {
+            return res.status(400).json({ message: 'Missing Razorpay verification data.' });
+        }
+
+        const expectedSignature = crypto
+            .createHmac('sha256', razorpayKeySecret)
+            .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+            .digest('hex');
+
+        if (expectedSignature !== razorpay_signature) {
+            return res.status(400).json({ message: 'Payment signature verification failed.' });
+        }
+
+        const savedOrder = await createCafeOrder({
+            ...orderData,
+            paymentMethod: 'Online',
+            paymentStatus: 'Paid via Razorpay',
+            confirmed: true,
+            razorpayOrderId: razorpay_order_id,
+            razorpayPaymentId: razorpay_payment_id
+        });
+
+        res.status(201).json({
+            message: 'Payment verified and order placed.',
+            id: savedOrder.id,
+            orderNumber: savedOrder.orderNumber
+        });
+    } catch (err) {
+        console.error('Razorpay verification error:', err);
+        res.status(500).json({ message: 'Unable to verify Razorpay payment.' });
+    }
 });
 
 // 5. Order confirm karna
